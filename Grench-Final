@@ -1,0 +1,599 @@
+import pygame
+from pygame.locals import *
+import pickle 
+
+pygame.init()
+
+clock = pygame.time.Clock()
+fps = 60
+
+screen_width = 1600
+screen_height = 900
+
+screen = pygame.display.set_mode((screen_width, screen_height))
+pygame.display.set_caption('Platformer')
+
+#define game variables
+tile_size = 50
+game_over = 0
+main_menu = True
+level_menu = False
+score = 0
+keys = 0
+
+#load images
+bg_img = pygame.image.load('swat.png')
+bg_img = pygame.transform.scale(bg_img, (1600, 900))
+restart_img = pygame.image.load('sad.png')
+Grench_img = pygame.image.load('Grench.png')
+exit_img = pygame.image.load('exit.png')
+level_img = pygame.image.load('level.png')
+level1_img = pygame.image.load('level1.png')
+level2_img = pygame.image.load('level2.png')
+level3_img = pygame.image.load('level3.png')
+
+class Button():
+    def __init__(self, x, y, image):
+        self.image = image
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.clicked = False
+
+    def draw(self):
+        action = False
+        #get mousepos
+        pos = pygame.mouse.get_pos()
+
+        #check mouseover and clicked condition
+        if self.rect.collidepoint(pos):
+            if pygame.mouse.get_pressed()[0] == 1 and self.clicked == False:
+                action = True
+                self.clicked = True
+        else:
+            self.clicked = False  # Reset clicked state when mouse is not over the button
+
+        if pygame.mouse.get_pressed()[0] == 0:
+            self.clicked = False  # Reset clicked state when mouse button is released
+
+        #draw button
+        screen.blit(self.image, self.rect)
+
+        return action
+
+class Player():
+    def __init__(self, x, y):
+        self.reset(x, y)
+
+    def update(self, game_over, keys):
+        dx = 0
+        dy = 0
+        walk_cooldown = 5
+
+        if game_over == 0:
+            #get keypresses
+            key = pygame.key.get_pressed()
+            if key[pygame.K_w] and self.jumped == False and self.in_air == False:
+                self.vel_y = -15
+                self.jumped = True
+            if key[pygame.K_w] == False:
+                self.jumped = False
+            if key[pygame.K_a]:
+                dx -= 5
+                self.counter += 1
+                self.direction = -1
+            if key[pygame.K_d]:
+                dx += 5
+                self.counter += 1
+                self.direction = 1
+            if key[pygame.K_a] == False and key[pygame.K_d] == False:
+                self.counter = 0
+                self.index = 0
+                if self.direction == 1:
+                    self.image = self.idle_right
+                if self.direction == -1:
+                    self.image = self.idle_left
+            else:
+                #handle animation
+                if self.counter > walk_cooldown:
+                    self.counter = 0	
+                    self.index += 1
+                    if self.index >= len(self.images_right):
+                        self.index = 0
+                    if self.direction == 1:
+                        self.image = self.images_right[self.index]
+                    if self.direction == -1:
+                        self.image = self.images_left[self.index]
+
+            #add gravity
+            self.vel_y += 1
+            if self.vel_y > 10:
+                self.vel_y = 10
+            dy += self.vel_y
+
+            #check for collision
+            self.in_air = True
+            for tile in world.tile_list:
+                #check for collision in x direction
+                if tile[1].colliderect(self.rect.x + dx, self.rect.y, self.width, self.height):
+                    dx = 0
+                #check for collision in y direction
+                if tile[1].colliderect(self.rect.x, self.rect.y + dy, self.width, self.height):
+                    #check if below the ground i.e. jumping
+                    if self.vel_y < 0:
+                        dy = tile[1].bottom - self.rect.top
+                        self.vel_y = 0
+                    #check if above the ground i.e. falling
+                    elif self.vel_y >= 0:
+                        dy = tile[1].top - self.rect.bottom
+                        self.vel_y = 0
+                        self.in_air = False
+
+
+            #check for collisions with enemys 
+            if pygame.sprite.spritecollide(self, spike_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, pike_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, pikeus_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, door_group, False) and keys > 0:
+                main_menu = True
+                level_menu = False
+                game_over = 0
+                player.reset(100, screen_height - 130)
+                score = 0
+                keys = 0
+
+            #update player coordinates
+            self.rect.x += dx
+            self.rect.y += dy
+
+            # Screen border collision
+            if self.rect.left < 0:
+                self.rect.left = 0
+            if self.rect.right > screen_width:
+                self.rect.right = screen_width
+            if self.rect.top < 0:
+                self.rect.top = 0
+            if self.rect.bottom > screen_height:
+                self.rect.bottom = screen_height
+                self.vel_y = 0
+                self.in_air = False
+
+        #draw player onto screen
+        screen.blit(self.image, self.rect)
+
+        return game_over
+
+    def reset(self, x, y):
+        self.images_right = []
+        self.images_left = []
+        self.index = 0
+        self.counter = 0
+        self.idle_right = pygame.image.load('grench1.png')
+        self.idle_right = pygame.transform.scale(self.idle_right, (40, 80))
+        self.idle_left = pygame.transform.flip(self.idle_right, True, False)
+        for num in range(2, 4):
+            img_right = pygame.image.load(f'grench{num}.png')
+            img_right = pygame.transform.scale(img_right, (40, 80))
+            img_left = pygame.transform.flip(img_right, True, False)
+            self.images_right.append(img_right)
+            self.images_left.append(img_left)
+        self.image = self.images_right[self.index]
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.width = self.image.get_width()
+        self.height = self.image.get_height()
+        self.vel_y = 0
+        self.jumped = False
+        self.direction = 0
+        self.in_air = True
+
+class Player2():
+    def __init__(self, x, y):
+        self.reset(x, y)
+
+    def update(self, game_over, keys):
+        dx = 0
+        dy = 0
+        walk_cooldown = 5
+
+        if game_over == 0:
+            #get keypresses
+            key = pygame.key.get_pressed()
+            if key[pygame.K_UP] and self.jumped == False and self.in_air == False:
+                self.vel_y = -15
+                self.jumped = True
+            if key[pygame.K_UP] == False:
+                self.jumped = False
+            if key[pygame.K_LEFT]:
+                dx -= 5
+                self.counter += 1
+                self.direction = -1
+            if key[pygame.K_RIGHT]:
+                dx += 5
+                self.counter += 1
+                self.direction = 1
+            if key[pygame.K_LEFT] == False and key[pygame.K_RIGHT] == False:
+                self.counter = 0
+                self.index = 0
+                if self.direction == 1:
+                    self.image = self.idle_right
+                if self.direction == -1:
+                    self.image = self.idle_left
+            else:
+                #handle animation
+                if self.counter > walk_cooldown:
+                    self.counter = 0	
+                    self.index += 1
+                    if self.index >= len(self.images_right):
+                        self.index = 0
+                    if self.direction == 1:
+                        self.image = self.images_right[self.index]
+                    if self.direction == -1:
+                        self.image = self.images_left[self.index]
+
+            #add gravity
+            self.vel_y += 1
+            if self.vel_y > 10:
+                self.vel_y = 10
+            dy += self.vel_y
+
+            #check for collision
+            self.in_air = True
+            for tile in world.tile_list:
+                #check for collision in x direction
+                if tile[1].colliderect(self.rect.x + dx, self.rect.y, self.width, self.height):
+                    dx = 0
+                #check for collision in y direction
+                if tile[1].colliderect(self.rect.x, self.rect.y + dy, self.width, self.height):
+                    #check if below the ground i.e. jumping
+                    if self.vel_y < 0:
+                        dy = tile[1].bottom - self.rect.top
+                        self.vel_y = 0
+                    #check if above the ground i.e. falling
+                    elif self.vel_y >= 0:
+                        dy = tile[1].top - self.rect.bottom
+                        self.vel_y = 0
+                        self.in_air = False
+
+
+            #check for collisions with enemys 
+            if pygame.sprite.spritecollide(self, spike_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, pike_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, pikeus_group, False):
+                game_over = -1
+
+            if pygame.sprite.spritecollide(self, door_group, False) and keys > 0:
+                main_menu = True
+                level_menu = False
+                game_over = 0
+                player2.reset(100, screen_height - 130)
+                score = 0
+                keys = 0
+
+            #update player coordinates
+            self.rect.x += dx
+            self.rect.y += dy
+
+            # Screen border collision
+            if self.rect.left < 0:
+                self.rect.left = 0
+            if self.rect.right > screen_width:
+                self.rect.right = screen_width
+            if self.rect.top < 0:
+                self.rect.top = 0
+            if self.rect.bottom > screen_height:
+                self.rect.bottom = screen_height
+                self.vel_y = 0
+                self.in_air = False
+
+        #draw player onto screen
+        screen.blit(self.image, self.rect)
+
+        return game_over
+
+    def reset(self, x, y):
+        self.images_right = []
+        self.images_left = []
+        self.index = 0
+        self.counter = 0
+        self.idle_right = pygame.image.load('p2grench1.png')
+        self.idle_right = pygame.transform.scale(self.idle_right, (40, 80))
+        self.idle_left = pygame.transform.flip(self.idle_right, True, False)
+        for num in range(2, 4):
+            img_right = pygame.image.load(f'p2grench{num}.png')
+            img_right = pygame.transform.scale(img_right, (40, 80))
+            img_left = pygame.transform.flip(img_right, True, False)
+            self.images_right.append(img_right)
+            self.images_left.append(img_left)
+        self.image = self.images_right[self.index]
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.width = self.image.get_width()
+        self.height = self.image.get_height()
+        self.vel_y = 0
+        self.jumped = False
+        self.direction = 0
+        self.in_air = True
+
+class World():
+    def __init__(self, data):
+        self.tile_list = []
+
+        #load images
+        brick_img = pygame.image.load('brick.png')
+        brickspd_img = pygame.image.load('brick.png')
+
+        row_count = 0
+        for row in data:
+            col_count = 0
+            for tile in row:
+                if tile == 1:
+                    img = pygame.transform.scale(brick_img, (tile_size, tile_size))
+                    img_rect = img.get_rect()
+                    img_rect.x = col_count * tile_size
+                    img_rect.y = row_count * tile_size
+                    tile = (img, img_rect)
+                    self.tile_list.append(tile)
+                if tile == 2:
+                    redgem = redGems(col_count * tile_size, row_count * tile_size)
+                    redGems_group.add(redgem)
+                if tile == 3:
+                    pike = Pike(col_count * tile_size, row_count * tile_size - 400)
+                    pike_group.add(pike)
+                if tile == 4:
+                    spike = Spike(col_count * tile_size, row_count * tile_size)
+                    spike_group.add(spike)
+                if tile == 5:
+                    pikeus = Pikeus(col_count * tile_size, row_count * tile_size)
+                    pikeus_group.add(pikeus)
+                if tile == 6:
+                    bluegem = blueGems(col_count * tile_size, row_count * tile_size)
+                    blueGems_group.add(bluegem)
+                if tile == 7:
+                    door = Door(col_count * tile_size, row_count * tile_size)
+                    door_group.add(door)
+                if tile == 8:
+                    key = Key(col_count * tile_size, row_count * tile_size)
+                    key_group.add(key)
+
+                col_count += 1
+            row_count += 1
+
+    def draw(self):
+        for tile in self.tile_list:
+            screen.blit(tile[0], tile[1])
+
+
+class Pike(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'pike.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.move_direction = 1
+        self.move_counter= 0
+        
+    def update(self):
+        self.rect.y += self.move_direction
+        self.move_counter += 1
+        if abs(self.move_counter) > 250:
+            self.move_direction *= -1
+            self.move_counter *= -1
+
+class Pikeus(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'pike.png')
+        self.image = pygame.transform.flip(self.image, False, True)
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+        self.move_direction = 1
+        self.move_counter = 0
+        
+    def update(self):
+        self.rect.y += self.move_direction
+        self.move_counter += 1
+        if abs(self.move_counter) > 250:
+            self.move_direction *= -1
+            self.move_counter *= -1
+           
+class Spike(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'spike.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class blueGems(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'bluegem.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class redGems(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'redgem.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class Door(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'door.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+class Key(pygame.sprite.Sprite):
+    def __init__(self, x, y):
+        pygame.sprite.Sprite.__init__(self)
+        self.image = pygame.image.load(f'key.png')
+        self.rect = self.image.get_rect()
+        self.rect.x = x
+        self.rect.y = y
+
+
+player = Player(100, screen_height - 130)
+player2 = Player2(100, screen_height - 130)
+pike_group = pygame.sprite.Group()
+spike_group = pygame.sprite.Group()
+pikeus_group = pygame.sprite.Group()
+blueGems_group = pygame.sprite.Group()
+redGems_group = pygame.sprite.Group()
+door_group = pygame.sprite.Group()
+key_group = pygame.sprite.Group()
+
+
+#create buttons
+restart_button = Button(screen_width // 2 - 200, screen_height // 2 - 50, restart_img)
+Grench_button = Button(screen_width // 2 - 200, screen_height // 2 - 100, Grench_img)
+exit_button = Button(screen_width // 2 - 200, screen_height // 2 + 200, exit_img)
+level_button = Button(screen_width // 2 - 200, screen_height // 2 + 50, level_img)
+level1_button = Button(screen_width // 2 - 200, screen_height // 2 - 150, level1_img)
+level2_button = Button(screen_width // 2 - 200, screen_height // 2, level2_img)
+level3_button = Button(screen_width // 2 - 200, screen_height // 2 + 150, level3_img)
+
+
+run = True
+while run:
+
+    clock.tick(fps)
+
+    screen.blit(bg_img, (0, 0))
+    
+    if main_menu == True:
+         if exit_button.draw():
+             run = False 
+         if Grench_button.draw():
+             pass
+         if level_button.draw():
+             main_menu = False
+             level_menu = True
+            
+    elif level_menu == True:
+        if level1_button.draw():
+            pike_group.empty()
+            spike_group.empty()
+            blueGems_group.empty()
+            redGems_group.empty()
+            pikeus_group.empty()
+            door_group.empty()
+            key_group.empty()
+            pickle_in = open('level1_data', 'rb')
+            world_data = pickle.load(pickle_in)
+            world = World(world_data)
+            level_menu = False
+            main_menu = False
+        if level2_button.draw():
+            pike_group.empty()
+            spike_group.empty()
+            blueGems_group.empty()
+            redGems_group.empty()
+            pikeus_group.empty()
+            door_group.empty()
+            key_group.empty()
+            pickle_in = open('level2_data', 'rb')
+            world_data = pickle.load(pickle_in)
+            world = World(world_data)
+            level_menu = False
+            main_menu = False
+        if level3_button.draw():
+            pike_group.empty()
+            spike_group.empty()
+            blueGems_group.empty()
+            redGems_group.empty()
+            pikeus_group.empty()
+            door_group.empty()
+            key_group.empty()
+            pickle_in = open('level3_data', 'rb')
+            world_data = pickle.load(pickle_in)
+            world = World(world_data)
+            level_menu = False
+            main_menu = False
+
+    else :
+        world.draw()
+
+        if game_over == 0: 
+            pike_group.update()
+            pikeus_group.update()
+            # update score
+            #check if coin has been collected
+            if pygame.sprite.spritecollide(player, blueGems_group, True):
+                score += 1
+            if pygame.sprite.spritecollide(player2, redGems_group, True):
+                score += 1
+            if pygame.sprite.spritecollide(player, key_group, True):
+                keys += 1
+            if pygame.sprite.spritecollide(player2, key_group, True):
+                keys += 1
+            if pygame.sprite.spritecollide(player, door_group, False) and keys > 0:
+                main_menu = True
+                level_menu = False
+                game_over = 0
+                player.reset(100, screen_height - 130)
+                player2.reset(100, screen_height - 130)
+                score = 0
+                keys = 0
+            if pygame.sprite.spritecollide(player2, door_group, False) and keys > 0:
+                main_menu = True
+                level_menu = False
+                game_over = 0
+                player.reset(100, screen_height - 130)
+                player2.reset(100, screen_height - 130)
+                score = 0
+                keys = 0
+
+        pike_group.draw(screen)
+        spike_group.draw(screen)
+        blueGems_group.draw(screen)
+        redGems_group.draw(screen)
+        pikeus_group.draw(screen)
+        door_group.draw(screen)
+        key_group.draw(screen)
+
+        game_over = player.update(game_over, keys)
+        game_over = player2.update(game_over, keys)
+
+        if game_over == -1:
+            if restart_button.draw():
+                pike_group.empty()
+                spike_group.empty()
+                blueGems_group.empty()
+                redGems_group.empty()
+                pikeus_group.empty()
+                door_group.empty()
+                key_group.empty()
+                world = World(world_data)  # re-initialize the world
+                player.reset(100, screen_height - 130)  # reset player position
+                player2.reset(100, screen_height - 130)  # reset player2 position
+                game_over = 0
+                score = 0
+                keys = 0
+
+    for event in pygame.event.get():
+        if event.type == pygame.QUIT:
+            run = False
+
+    pygame.display.update()
+
+pygame.quit()
